@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIFARE Classic Dump Parser — decode .mfd keys &amp; access bits</title>
+  <meta name="description" content="Drop a MIFARE Classic dump (.mfd, .bin, .eml, .mct, Flipper .nfc) and get a colour-coded breakdown of keys, access bits, value blocks and MAD. Runs entirely in your browser.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='3' y='7' width='26' height='18' rx='3' fill='%230d1117' stroke='%23ffd700' stroke-width='2'/><rect x='7' y='12' width='7' height='6' rx='1' fill='%235fd75f'/><rect x='17' y='12' width='8' height='2' fill='%2300d7ff'/><rect x='17' y='16' width='5' height='2' fill='%23ff87ff'/></svg>">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">▣</span>
+      <div>
+        <h1>MIFARE Classic Dump Parser</h1>
+        <p class="tagline">Keys, access bits, value blocks &amp; MAD — decoded and colour-coded</p>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="parser" role="tab">Dump parser</button>
+      <button class="tab" data-tab="compare" role="tab">Compare dumps</button>
+      <button class="tab" data-tab="acl" role="tab">Access bits calculator</button>
+      <a class="tab ghost" href="https://github.com/" id="repo-link" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ════════════════ PARSER TAB ════════════════ -->
+    <section id="tab-parser" class="tabpane active">
+      <div id="dropzone" class="dropzone" tabindex="0">
+        <input type="file" id="file" hidden>
+        <div class="dz-inner">
+          <div class="dz-icon">⇪</div>
+          <div class="dz-title">Drop a dump here or <u>browse</u></div>
+          <div class="dz-sub">.mfd · .bin · .dump · .eml (Proxmark) · .mct (MIFARE Classic Tool) · .nfc (Flipper Zero)</div>
+          <div class="dz-privacy">🔒 Parsed locally in your browser — nothing is uploaded.</div>
+        </div>
+      </div>
+      <div class="dz-actions">
+        <button id="load-sample" class="btn">Load sample 1K dump</button>
+        <label class="opt">UID length
+          <select id="uid-len">
+            <option value="0">auto (BCC)</option>
+            <option value="4">4 bytes</option>
+            <option value="7">7 bytes</option>
+          </select>
+        </label>
+        <label class="opt"><input type="checkbox" id="opt-ascii" checked> ASCII column</label>
+        <label class="opt"><input type="checkbox" id="opt-collapse"> Collapse untouched sectors</label>
+      </div>
+
+      <div id="error" class="error" hidden></div>
+      <div id="report" hidden></div>
+    </section>
+
+    <!-- ════════════════ COMPARE TAB ════════════════ -->
+    <section id="tab-compare" class="tabpane">
+      <div class="cmp-drops">
+        <div class="dropzone cmp-drop" id="drop-A" tabindex="0" data-slot="A">
+          <input type="file" hidden>
+          <div class="dz-inner">
+            <div class="slot-label">A</div>
+            <div class="dz-title">Drop dump A or <u>browse</u></div>
+            <div class="dz-file mono" id="file-A">no file</div>
+          </div>
+        </div>
+        <button class="btn swap" id="cmp-swap" title="Swap A and B">⇄</button>
+        <div class="dropzone cmp-drop" id="drop-B" tabindex="0" data-slot="B">
+          <input type="file" hidden>
+          <div class="dz-inner">
+            <div class="slot-label">B</div>
+            <div class="dz-title">Drop dump B or <u>browse</u></div>
+            <div class="dz-file mono" id="file-B">no file</div>
+          </div>
+        </div>
+      </div>
+      <div class="dz-actions">
+        <button id="cmp-sample" class="btn">Load sample before / after pair</button>
+        <label class="opt"><input type="checkbox" id="cmp-only" checked> Only sectors with changes</label>
+        <span class="muted small">🔒 Both files are compared locally in your browser.</span>
+      </div>
+      <div id="cmp-error" class="error" hidden></div>
+      <div id="cmp-report" hidden></div>
+    </section>
+
+    <!-- ════════════════ ACL CALCULATOR TAB ════════════════ -->
+    <section id="tab-acl" class="tabpane">
+      <div class="panel">
+        <h2>Access bits calculator</h2>
+        <p class="muted">Type the three access-bit bytes (trailer bytes 6–8) to decode them, or pick conditions below to generate the bytes. Both directions update live.</p>
+        <div class="acl-input">
+          <label>Access bytes
+            <input id="acl-hex" value="FF 07 80" spellcheck="false" autocomplete="off" maxlength="12">
+          </label>
+          <span id="acl-status" class="pill"></span>
+          <label>GPB (byte 9)
+            <input id="acl-gpb" value="69" spellcheck="false" maxlength="2" class="short">
+          </label>
+          <div class="acl-full">Full trailer: <code id="acl-trailer"></code></div>
+        </div>
+        <div class="acl-presets" id="acl-presets"><span class="muted">Presets:</span></div>
+        <div id="acl-builder" class="acl-builder"></div>
+        <div id="acl-output"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Open source · MIT · also ships as a Python CLI (<code>cli/mfdparse.py</code>)</span>
+    <span class="muted">For analysing cards you own or are authorised to test.</span>
+  </footer>
+
+  <script src="assets/mifare.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
