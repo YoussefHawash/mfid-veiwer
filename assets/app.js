@@ -406,9 +406,6 @@
     if (A) setCmp('B', A.file);
     if (!A || !B) renderCompare();
   };
-  $('#cmp-sample').onclick = () => Promise.all([fetchSample('samples/sample_1k.mfd'), fetchSample('samples/sample_1k_after.mfd')])
-    .then(([a, b]) => { setCmp('A', a); setCmp('B', b); })
-    .catch((e) => { $('#cmp-error').textContent = e.message; $('#cmp-error').hidden = false; });
   $('#cmp-only').onchange = renderCompare;
 
   function diffBlock(dA, dB, b) {
