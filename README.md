@@ -4,9 +4,8 @@
 
 Drop a MIFARE Classic dump in your browser to see its keys, access bits and value blocks, colour-coded and decoded. Files are parsed locally and never uploaded.
 
-- **Parser**: sector-by-sector hexdump, access-bit permissions, default-key and invalid-ACL warnings
+- **Parser**: colour-coded hexdump, decoded access bits, default-key and invalid-access warnings
 - **Compare**: two dumps side by side with the differing bytes highlighted
-- **Access bits calculator**: decode or build trailer access bytes
 
 Reads `.mfd` / `.bin`, Proxmark `.eml`, MIFARE Classic Tool `.mct` and Flipper `.nfc`, for Mini, 1K, 2K and 4K cards.
 

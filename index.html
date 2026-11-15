@@ -14,13 +14,11 @@
       <span class="logo">▣</span>
       <div>
         <h1>MIFARE Classic Dump Parser</h1>
-        <p class="tagline">Keys, access bits, value blocks &amp; MAD — decoded and colour-coded</p>
       </div>
     </div>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="parser" role="tab">Dump parser</button>
       <button class="tab" data-tab="compare" role="tab">Compare dumps</button>
-      <button class="tab" data-tab="acl" role="tab">Access bits calculator</button>
       <a class="tab ghost" href="https://github.com/" id="repo-link" target="_blank" rel="noopener">GitHub ↗</a>
     </nav>
   </header>
@@ -33,22 +31,10 @@
         <div class="dz-inner">
           <div class="dz-icon">⇪</div>
           <div class="dz-title">Drop a dump here or <u>browse</u></div>
-          <div class="dz-sub">.mfd · .bin · .dump · .eml (Proxmark) · .mct (MIFARE Classic Tool) · .nfc (Flipper Zero)</div>
-          <div class="dz-privacy">🔒 Parsed locally in your browser — nothing is uploaded.</div>
+          <div class="dz-sub">.mfd · .bin · .eml · .mct · .nfc — parsed locally, nothing is uploaded</div>
         </div>
       </div>
-      <div class="dz-actions">
-        <button id="load-sample" class="btn">Load sample 1K dump</button>
-        <label class="opt">UID length
-          <select id="uid-len">
-            <option value="0">auto (BCC)</option>
-            <option value="4">4 bytes</option>
-            <option value="7">7 bytes</option>
-          </select>
-        </label>
-        <label class="opt"><input type="checkbox" id="opt-ascii" checked> ASCII column</label>
-        <label class="opt"><input type="checkbox" id="opt-collapse"> Collapse untouched sectors</label>
-      </div>
+      <div class="dz-actions"><button id="load-sample" class="linkbtn">or try a sample dump</button></div>
 
       <div id="error" class="error" hidden></div>
       <div id="report" hidden></div>
@@ -75,41 +61,14 @@
           </div>
         </div>
       </div>
-      <div class="dz-actions">
-        <button id="cmp-sample" class="btn">Load sample before / after pair</button>
-        <label class="opt"><input type="checkbox" id="cmp-only" checked> Only sectors with changes</label>
-        <span class="muted small">🔒 Both files are compared locally in your browser.</span>
-      </div>
+      <div class="dz-actions"><button id="cmp-sample" class="linkbtn">or try a sample pair</button>
+        <label class="opt"><input type="checkbox" id="cmp-only" checked> Only changed sectors</label></div>
       <div id="cmp-error" class="error" hidden></div>
       <div id="cmp-report" hidden></div>
     </section>
-
-    <!-- ════════════════ ACL CALCULATOR TAB ════════════════ -->
-    <section id="tab-acl" class="tabpane">
-      <div class="panel">
-        <h2>Access bits calculator</h2>
-        <p class="muted">Type the three access-bit bytes (trailer bytes 6–8) to decode them, or pick conditions below to generate the bytes. Both directions update live.</p>
-        <div class="acl-input">
-          <label>Access bytes
-            <input id="acl-hex" value="FF 07 80" spellcheck="false" autocomplete="off" maxlength="12">
-          </label>
-          <span id="acl-status" class="pill"></span>
-          <label>GPB (byte 9)
-            <input id="acl-gpb" value="69" spellcheck="false" maxlength="2" class="short">
-          </label>
-          <div class="acl-full">Full trailer: <code id="acl-trailer"></code></div>
-        </div>
-        <div class="acl-presets" id="acl-presets"><span class="muted">Presets:</span></div>
-        <div id="acl-builder" class="acl-builder"></div>
-        <div id="acl-output"></div>
-      </div>
-    </section>
   </main>
 
-  <footer>
-    <span>Open source · MIT · also ships as a Python CLI (<code>cli/mfdparse.py</code>)</span>
-    <span class="muted">For analysing cards you own or are authorised to test.</span>
-  </footer>
+  <footer><span>MIT · <a href="https://github.com/YoussefHawash/mfid-veiwer">source</a></span><span>For cards you own or are authorised to test.</span></footer>
 
   <script src="assets/mifare.js"></script>
   <script src="assets/app.js"></script>

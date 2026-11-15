@@ -21,6 +21,7 @@
   }
   $$('.tab[data-tab]').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
   switchTab((location.hash || '#parser').slice(1).split('/')[0]);
+  window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if ($('#tab-' + t)) switchTab(t); });
 
   /* repo link: points at the GitHub repo when served from GitHub Pages */
   (() => {
@@ -152,53 +153,55 @@
       `<span class="bar">│</span><span class="tag">${blockTag(info, opt.compact)}</span></div>`;
   }
 
+  /** Render rows, folding 3+ consecutive "quiet" blocks into a single line. */
+  function foldRows(infos, isQuiet, render) {
+    let out = '', i = 0;
+    while (i < infos.length) {
+      let j = i;
+      while (j < infos.length && isQuiet(infos[j], j)) j++;
+      if (j - i >= 3) {
+        out += `<div class="row fold"><span class="bn">${infos[i].block}–${infos[j - 1].block}</span><span class="bar">│</span><span class="c-dim">${j - i} empty blocks</span></div>`;
+        i = j;
+      } else {
+        out += render(infos[i], i);
+        i++;
+      }
+    }
+    return out;
+  }
+
   function aclTables(conds, valid, kbr, first, n) {
     let html = '';
-    if (!valid) html += `<div class="footnote" style="color:var(--err)">Inverted copies don't match — table decoded from the non-inverted bits only.</div>`;
-    html += `<div class="bits">C1C2C3&nbsp; ${conds.map((c, g) => `g${g}:<b>${c}</b>`).join('')} <span class="c-dim">(g3 = trailer)</span></div>`;
-    html += '<div class="tablewrap"><table class="acltable"><thead><tr><th>Blocks</th><th>C1 C2 C3</th><th>Read</th><th>Write</th><th>Increment</th><th>Dec / Tfr / Rst</th><th>Meaning</th></tr></thead><tbody>';
+    if (!valid) html += '<div class="line c-err small">Invalid access bits — the inverted copy doesn\'t match, so a real card would lock this sector. Decoded from the plain bits:</div>';
+    html += '<div class="tablewrap"><table class="acltable"><thead><tr><th>Block</th><th>Read</th><th>Write</th><th>Incr</th><th>Decr</th><th></th></tr></thead><tbody>';
     let anyEff = false;
-    for (let g = 0; g < 3; g++) {
-      const label = n === 4 ? `${first + g}` : `${first + g * 5}–${first + g * 5 + 4}`;
+    const same = conds[0] === conds[1] && conds[1] === conds[2];
+    for (let g = 0; g < (same ? 1 : 3); g++) {
+      const label = same ? `${first}–${first + n - 2}` : (n === 4 ? `${first + g}` : `${first + g * 5}–${first + g * 5 + 4}`);
       const row = M.DATA_ACL[conds[g]];
-      html += `<tr><td class="c-muted">${label}</td><td class="cbits">${conds[g].split('').join(' ')}</td>`;
+      html += `<tr><td class="c-muted">${label}</td>`;
       for (const p of row.slice(0, 4)) {
         const [e, ch] = M.effective(p, kbr);
         anyEff = anyEff || ch;
-        html += `<td class="${pcls(e)}"${ch ? ` title="${esc(p)} on paper — Key B is readable so it can't authenticate"` : ''}>${e}${ch ? '*' : ''}</td>`;
+        html += `<td class="${pcls(e)}">${e}${ch ? '*' : ''}</td>`;
       }
       html += `<td class="meaning">${esc(row[4])}</td></tr>`;
     }
-    html += '</tbody></table></div>';
     const t = M.TRAILER_ACL[conds[3]];
-    html += '<div class="tablewrap"><table class="acltable" style="margin-top:10px"><thead><tr><th>Trailer</th><th>C1 C2 C3</th><th>Key A read</th><th>Key A write</th><th>ACL read</th><th>ACL write</th><th>Key B read</th><th>Key B write</th><th>Meaning</th></tr></thead><tbody>';
-    html += `<tr><td class="c-muted">${first + n - 1}</td><td class="cbits">${conds[3].split('').join(' ')}</td>` +
-      t.slice(0, 6).map((p) => `<td class="${pcls(p)}">${p}</td>`).join('') + `<td class="meaning">${esc(t[6])}</td></tr>`;
+    const w = (p) => `<span class="${pcls(p)}">${p}</span>`;
+    html += `<tr class="trow"><td class="c-muted">${first + n - 1}</td><td colspan="4">write Key A ${w(t[1])} · access ${w(t[3])} · Key B ${w(t[5])}</td><td class="meaning">${esc(t[6])}</td></tr>`;
     html += '</tbody></table></div>';
-    if (anyEff) html += '<div class="footnote">* Key B is readable in this sector, so the card refuses it for authentication — effective right shown.</div>';
+    if (anyEff) html += '<div class="footnote">* Key B is readable here, so only Key A works.</div>';
     return html;
-  }
-
-  function keyLine(label, key, cls, sec) {
-    const which = label.slice(-1);
-    if (!key) return `<span class="k">${label}</span><span>${sp('unknown', '------------')}<span class="note c-dim">not in dump</span></span>`;
-    let notes = '';
-    if (key === '000000000000' && which === 'A') notes += '<span class="note c-warn">possibly masked — cards never return Key A; the dump tool may not have filled it in</span>';
-    else if (key === '000000000000' && which === 'B' && !sec.keybReadable) notes += '<span class="note c-warn">possibly masked — Key B isn\'t readable under these access bits</span>';
-    else if (M.KNOWN_KEYS[key]) notes += `<span class="note c-warn">⚠ ${esc(M.KNOWN_KEYS[key])}</span>`;
-    if (which === 'B' && sec.keybReadable) notes += '<span class="note c-warn">readable → used as data, not usable for auth</span>';
-    return `<span class="k">${label}</span><span>${sp(cls, key)}${notes}</span>`;
   }
 
   function sectorBadges(sec) {
     const b = [];
     if (sec.accessValid === false) b.push('<span class="badge b-err">INVALID ACL</span>');
     if ([sec.keyA, sec.keyB].some((k) => k && M.KNOWN_KEYS[k] && k !== '000000000000')) b.push('<span class="badge b-warn">default key</span>');
-    if (sec.keybReadable) b.push('<span class="badge b-dim">Key B readable</span>');
     const vals = sec.blockInfo.filter((x) => x.type === 'value').length;
     if (vals) b.push(`<span class="badge b-value">${vals} value</span>`);
     if (sec.blockInfo.some((x) => x.type === 'mad')) b.push('<span class="badge b-mad">MAD</span>');
-    if (isUntouched(sec)) b.push('<span class="badge b-dim">blank</span>');
     return b.join('');
   }
 
@@ -246,6 +249,7 @@
     const pane = a.closest('.tabpane');
     const el = $(`#${pane.id === 'tab-compare' ? 'cmp' : 'sec'}-${a.dataset.jump}`, pane);
     if (!el) return;
+    if (el.tagName === 'DETAILS') el.open = true;
     el.classList.remove('collapsed', 'flash');
     void el.offsetWidth;
     el.classList.add('flash');
@@ -254,146 +258,107 @@
 
   /* ═══════════════════ PARSER VIEW ═══════════════════ */
 
-  function legendHTML() {
-    return `<div class="legend">
-      <span>${sp('uid', 'UID')} ${sp('bcc', 'BCC')} ${sp('sak', 'SAK')} ${sp('atqa', 'ATQA')}</span><span class="sep">│</span>
-      <span>${sp('keya', 'Key A')} ${sp('acc', 'Access')} ${sp('gpb', 'GPB')} ${sp('keyb', 'Key B')}</span><span class="sep">│</span>
-      <span>${sp('value', 'Value')} ${sp('valinv', '~Value')} ${sp('addr', 'Addr')}</span><span class="sep">│</span>
-      <span>${sp('crc', 'MAD-CRC')} ${sp('aid', 'AID')}</span><span class="sep">│</span>
-      <span>Rights: <span class="p-AB">A|B</span> <span class="p-A">A</span> <span class="p-B">B</span> <span class="p-never">never</span></span>
-      <span class="sep">│</span><span>hover a byte for its meaning</span></div>`;
-  }
-
   function renderParser() {
     const P = state.parser;
     if (!P) return;
     const { d, res, name } = P;
     const man = res.manufacturer;
-    const showAscii = $('#opt-ascii').checked;
-    const collapse = $('#opt-collapse').checked;
-    const groups = groupFindings(res.warnings);
+    const groups = groupFindings(res.warnings).filter((g) => g.level !== 'info');
     const nErr = groups.filter((g) => g.level === 'err').length;
-    const nWarn = groups.filter((g) => g.level === 'warn').length;
-    const keys = new Map();
-    res.sectors.forEach((s) => [s.keyA, s.keyB].forEach((k) => k && keys.set(k, (keys.get(k) || 0) + 1)));
+    const keys = new Set();
+    res.sectors.forEach((s) => [s.keyA, s.keyB].forEach((k) => k && keys.add(k)));
 
-    let h = '';
-    // overview
-    h += '<div class="overview">';
-    h += `<div class="stat"><div class="k">File</div><div class="v">${esc(name)}</div><div class="s">${esc(res.format)}</div></div>`;
-    h += `<div class="stat"><div class="k">Card</div><div class="v">${esc(res.card)}</div><div class="s">${res.size} bytes · ${res.nsec} sectors</div></div>`;
-    if (man) {
-      h += `<div class="stat"><div class="k">UID (${man.uidLen}-byte)</div><div class="v c-uid">${spaced(man.uid)}</div><div class="s">${man.uidLen === 4 ? `SAK ${H(man.sak)} · ATQA ${man.atqa}` : esc(man.mfr)}</div></div>`;
-    }
-    h += `<div class="stat"><div class="k">Keys</div><div class="v">${keys.size} unique</div><div class="s">${[...keys.keys()].filter((k) => M.KNOWN_KEYS[k] && k !== '000000000000').length} known/default</div></div>`;
-    h += `<div class="stat"><div class="k">Findings</div><div class="v"><span class="${nErr ? 'c-err' : 'c-ok'}">${nErr} err</span> · <span class="${nWarn ? 'c-warn' : 'c-ok'}">${nWarn} warn</span></div><div class="s">${res.mad ? `MAD v${res.mad.version} ${res.mad.crcOk ? '✔' : '✘ CRC'}` : 'no MAD'}</div></div>`;
-    h += '</div>';
-
-    h += `<div class="toolbar">
-      <button class="btn small" id="exp-json">⇩ JSON</button>
-      <button class="btn small" id="exp-keys">⇩ Keys (.dic)</button>
-      <button class="btn small" id="copy-uid">Copy UID</button>
-      <button class="btn small" id="to-compare">Compare with another dump →</button>
-      <span class="spacer"></span>
-      <button class="btn small" id="expand-all">Expand all</button>
-      <button class="btn small" id="collapse-all">Collapse all</button></div>`;
-    h += legendHTML();
-
-    // summary
-    h += `<div class="panel"><h2>Key &amp; access summary</h2><div class="tablewrap"><table><thead><tr>
-      <th>Sec</th><th>Blocks</th><th>Key A</th><th>Key B</th><th>Access</th><th>GPB</th><th>Notes</th></tr></thead><tbody>`;
+    // split sectors into shown cards and runs of blank (factory) sectors; sector 0 always shown
+    const items = [];
     for (const s of res.sectors) {
-      h += `<tr class="click" data-jump="${s.sector}"><td>${s.sector}</td><td class="c-muted">${s.firstBlock}–${s.trailerBlock}</td>
-        <td>${s.keyA ? sp('keya', s.keyA) : sp('unknown', '------------')}</td>
-        <td>${s.keyB ? sp('keyb', s.keyB) : sp('unknown', '------------')}</td>
-        <td>${s.accessBytes ? sp(s.accessValid ? 'acc' : 'bad', spaced(s.accessBytes)) : sp('unknown', '-- -- --')}</td>
-        <td>${s.gpb !== null ? sp('gpb', H(s.gpb)) : '--'}</td><td>${sectorBadges(s)}</td></tr>`;
+      const blank = s.sector !== 0 && isUntouched(s);
+      const last = items[items.length - 1];
+      if (blank && last && last.blank) last.secs.push(s);
+      else items.push(blank ? { blank: true, secs: [s] } : { blank: false, sec: s });
+    }
+    const runLabel = (secs) => secs.length === 1 ? `${secs[0].sector}` : `${secs[0].sector}–${secs[secs.length - 1].sector}`;
+
+    let h = `<div class="infobar">
+      <span class="mono">${esc(name)}</span><span class="dot">·</span><span>${esc(res.card)}</span>
+      ${man ? `<span class="dot">·</span><span>UID ${sp('uid', man.uid)}</span>` : ''}
+      <span class="dot">·</span><span class="${nErr ? 'c-err' : groups.length ? 'c-warn' : 'c-ok'}">${nErr ? nErr + ' error(s)' : groups.length ? groups.length + ' warning(s)' : '✔ no issues'}</span>
+      <span class="spacer"></span>
+      <button class="btn small" id="exp-json">⇩ JSON</button><button class="btn small" id="exp-keys">⇩ Keys</button></div>`;
+
+    if (groups.length) {
+      h += '<ul class="findings panel">' + groups.map((g) =>
+        `<li class="f-${g.level}"><span class="ico">${g.level === 'err' ? '✘' : '⚠'}</span><span class="where">${sectorRanges(g.secs, true)}</span><span class="msg">${esc(g.msg)}</span></li>`).join('') + '</ul>';
+    }
+
+    // summary table
+    h += '<div class="panel tight"><div class="tablewrap"><table><thead><tr><th>Sector</th><th>Key A</th><th>Key B</th><th>Access</th><th></th></tr></thead><tbody>';
+    for (const it of items) {
+      if (it.blank) {
+        h += `<tr class="click" data-jump="${it.secs[0].sector}"><td>${runLabel(it.secs)}</td><td colspan="4" class="c-dim">blank · factory keys · transport access</td></tr>`;
+        continue;
+      }
+      const s = it.sec;
+      h += `<tr class="click" data-jump="${s.sector}"><td>${s.sector}</td>
+        <td>${s.keyA ? sp('keya', s.keyA) : sp('unknown', '—')}</td>
+        <td>${s.keyB ? sp('keyb', s.keyB) : sp('unknown', '—')}</td>
+        <td>${s.accessBytes ? sp(s.accessValid ? 'acc' : 'bad', spaced(s.accessBytes)) : sp('unknown', '—')}</td>
+        <td>${sectorBadges(s)}</td></tr>`;
     }
     h += '</tbody></table></div></div>';
 
-    // findings
-    h += `<div class="panel"><h2>Findings<span class="count">${nErr} error(s) · ${nWarn} warning(s) · ${groups.length - nErr - nWarn} note(s)</span></h2><ul class="findings">`;
-    if (!groups.length) h += '<li><span class="ico c-ok">✔</span><span></span><span class="msg">nothing notable</span></li>';
-    for (const g of groups) {
-      const ico = { err: '✘', warn: '⚠', info: '•' }[g.level];
-      h += `<li class="f-${g.level}"><span class="ico">${ico}</span><span class="where">${sectorRanges(g.secs, true)}</span><span class="msg">${esc(g.msg)}</span></li>`;
-    }
-    h += '</ul></div>';
+    h += `<div class="legend">${sp('uid', 'UID')} ${sp('keya', 'Key A')} ${sp('acc', 'Access')} ${sp('gpb', 'GPB')} ${sp('keyb', 'Key B')} ${sp('value', 'Value')} <span class="c-dim">· hover a byte for details</span></div>`;
 
-    // unique keys
-    h += '<div class="panel"><h2>Unique keys<span class="count">' + keys.size + '</span></h2><div class="tablewrap"><table><tbody>';
-    for (const [k, c] of [...keys.entries()].sort((a, b) => b[1] - a[1])) {
-      h += `<tr><td>${sp('acc', k)}</td><td class="c-muted">×${c}</td><td class="${M.KNOWN_KEYS[k] ? 'c-warn' : 'c-dim'}">${esc(M.KNOWN_KEYS[k] || '')}</td></tr>`;
-    }
-    h += '</tbody></table></div></div>';
-
-    // nav
-    h += '<div class="secnav">' + res.sectors.map((s) => {
-      const cls = s.accessValid === false ? 'err' : ([s.keyA, s.keyB].some((k) => k && M.KNOWN_KEYS[k] && k !== '000000000000') ? 'warnk' : '');
-      return `<a href="#sec-${s.sector}" data-jump="${s.sector}" class="${cls}">S${s.sector}</a>`;
-    }).join('') + '</div>';
-
-    // sectors
-    for (const sec of res.sectors) {
-      const collapsed = collapse && isUntouched(sec);
-      h += `<section class="sector${collapsed ? ' collapsed' : ''}" id="sec-${sec.sector}">
-        <div class="sec-head"><span class="chev">▾</span><h3>Sector ${sec.sector}</h3><span class="blocks">blocks ${sec.firstBlock}–${sec.trailerBlock}</span><span class="badges">${sectorBadges(sec)}</span></div>
-        <div class="sec-body"><div class="hexdump">`;
-      for (const info of sec.blockInfo) {
-        if (info.type === 'trailer') info.accValid = sec.accessValid;
-        h += hexRow(d, info, man, { ascii: showAscii });
-      }
-      h += '</div><div class="details">';
-      if (sec.sector === 0) {
-        h += '<div class="kv">';
-        if (man && man.uidLen === 4) {
-          h += `<span class="k">UID</span><span>${sp('uid', spaced(man.uid))}<span class="note c-dim">4-byte${man.uid.startsWith('08') ? ', 08 = random ID' : ''}</span></span>`;
-          h += `<span class="k">BCC</span><span>${sp(man.bccOk ? 'bcc' : 'bad', H(man.bcc))}<span class="note ${man.bccOk ? 'c-ok' : 'c-err'}">${man.bccOk ? '✔ matches UID XOR' : '✘ expected ' + H(man.bccCalc)}</span></span>`;
-          h += `<span class="k">SAK</span><span>${sp('sak', H(man.sak))}<span class="note c-dim">${esc(man.sakName)}</span></span>`;
-          h += `<span class="k">ATQA</span><span>${sp('atqa', man.atqa)}</span>`;
-          h += `<span class="k">Mfr</span><span>${sp('mfr', spaced(man.mfrData))}<span class="note c-dim">as stored in the dump</span></span>`;
-        } else if (man) {
-          h += `<span class="k">UID</span><span>${sp('uid', spaced(man.uid))}<span class="note c-dim">7-byte · manufacturer: ${esc(man.mfr)}</span></span>`;
-          h += `<span class="k">Mfr</span><span>${sp('mfr', spaced(man.mfrData))}</span>`;
-        }
-        h += '</div>';
-        if (res.mad) h += madHTML(res.mad, 'MAD v1');
-      }
-      if (sec.sector === 16 && res.mad && res.mad.mad2) h += madHTML(res.mad.mad2, 'MAD v2');
-      h += `<div class="subhead">Keys &amp; access</div><div class="kv">${keyLine('Key A', sec.keyA, 'keya', sec)}${keyLine('Key B', sec.keyB, 'keyb', sec)}`;
-      if (sec.accessBytes) {
-        h += `<span class="k">Access</span><span>${sp(sec.accessValid ? 'acc' : 'bad', spaced(sec.accessBytes))}<span class="note ${sec.accessValid ? 'c-ok' : 'c-err'}">${sec.accessValid ? '✔ valid' : '✘ INVALID — inverted bits mismatch; a real card bricks this sector'}</span></span>`;
-        if (sec.gpb !== null) {
-          let gn = '';
-          if (sec.sector === 0 && sec.gpb & 0x80) gn = `MAD present, v${sec.gpb & 3}${sec.gpb & 0x40 ? ', multi-application' : ''}`;
-          h += `<span class="k">GPB</span><span>${sp('gpb', H(sec.gpb))}${gn ? `<span class="note c-dim">${gn}</span>` : ''}</span>`;
-        }
-        h += '</div>' + aclTables(sec.conds, sec.accessValid, sec.keybReadable, sec.firstBlock, sec.blocks);
+    for (const it of items) {
+      if (it.blank) {
+        h += `<details class="blankrun" id="sec-${it.secs[0].sector}"><summary>Sectors ${runLabel(it.secs)} <span class="c-dim">— ${it.secs.length} blank sector${it.secs.length > 1 ? 's' : ''}, factory keys</span></summary>`;
+        h += it.secs.map((s) => sectorCard(d, res, s)).join('') + '</details>';
       } else {
-        h += `<span class="k">Access</span><span>${sp('unknown', '-- -- --')}<span class="note c-dim">access bits not in dump</span></span></div>`;
+        h += sectorCard(d, res, it.sec);
       }
-      h += '</div></div></section>';
     }
 
     const rep = $('#report');
     rep.innerHTML = h;
     rep.hidden = false;
     $('#dropzone').classList.add('compact');
-
     $('#exp-json').onclick = () => download(name.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(M.toJSON(res), null, 2), 'application/json');
-    $('#exp-keys').onclick = () => download(name.replace(/\.[^.]+$/, '') + '_keys.dic', [...keys.keys()].join('\n') + '\n', 'text/plain');
-    $('#copy-uid').onclick = (e) => { if (man) navigator.clipboard?.writeText(man.uid).then(() => { e.target.textContent = 'Copied ✔'; setTimeout(() => (e.target.textContent = 'Copy UID'), 1200); }); };
-    $('#to-compare').onclick = () => { setCmp('A', P.file); switchTab('compare'); };
-    $('#expand-all').onclick = () => $$('#report .sector').forEach((s) => s.classList.remove('collapsed'));
-    $('#collapse-all').onclick = () => $$('#report .sector').forEach((s) => s.classList.add('collapsed'));
+    $('#exp-keys').onclick = () => download(name.replace(/\.[^.]+$/, '') + '_keys.dic', [...keys].join('\n') + '\n', 'text/plain');
+  }
+
+  function sectorCard(d, res, sec) {
+    const man = res.manufacturer;
+    let h = `<section class="sector" id="sec-${sec.sector}">
+      <div class="sec-head"><span class="chev">▾</span><h3>Sector ${sec.sector}</h3><span class="blocks">blocks ${sec.firstBlock}–${sec.trailerBlock}</span><span class="badges">${sectorBadges(sec)}</span></div>
+      <div class="sec-body"><div class="hexdump">`;
+    sec.blockInfo.forEach((info) => { if (info.type === 'trailer') info.accValid = sec.accessValid; });
+    h += foldRows(sec.blockInfo, (info) => info.type === 'empty', (info) => hexRow(d, info, man, { ascii: true }));
+    h += '</div><div class="details">';
+    if (sec.sector === 0 && man) {
+      h += man.uidLen === 4
+        ? `<div class="line">UID ${sp('uid', spaced(man.uid))} · BCC ${man.bccOk ? sp('ok', '✔') : sp('err', '✘ expected ' + H(man.bccCalc))} · SAK ${sp('sak', H(man.sak))} <span class="c-dim">${esc(man.sakName)}</span> · ATQA ${sp('atqa', man.atqa)}</div>`
+        : `<div class="line">UID ${sp('uid', spaced(man.uid))} <span class="c-dim">7-byte · ${esc(man.mfr)}</span></div>`;
+      if (res.mad) h += madHTML(res.mad, 'MAD v1');
+    }
+    if (sec.sector === 16 && res.mad && res.mad.mad2) h += madHTML(res.mad.mad2, 'MAD v2');
+    const notes = [keyNote('A', sec.keyA, sec), keyNote('B', sec.keyB, sec)].filter(Boolean);
+    if (notes.length) h += `<div class="line c-warn small">${notes.join(' · ')}</div>`;
+    if (sec.conds) h += aclTables(sec.conds, sec.accessValid, sec.keybReadable, sec.firstBlock, sec.blocks);
+    else h += '<div class="line c-dim">Access bits not in dump</div>';
+    return h + '</div></div></section>';
+  }
+
+  function keyNote(which, key, sec) {
+    if (!key) return '';
+    if (key === '000000000000' && (which === 'A' || !sec.keybReadable)) return `Key ${which} is zeros — probably masked by the card`;
+    if (which === 'B' && sec.keybReadable) return 'Key B is readable, so it can\'t be used to log in';
+    if (M.KNOWN_KEYS[key] && key !== 'FFFFFFFFFFFF') return `Key ${which}: ${esc(M.KNOWN_KEYS[key])}`;
+    return '';
   }
 
   function madHTML(m, title) {
-    const cps = m.info & 0x3f;
-    let h = `<div class="subhead">${title}</div><div class="kv"><span class="k">CRC</span><span>${sp('crc', H(m.crc))}<span class="note ${m.crcOk ? 'c-ok' : 'c-err'}">${m.crcOk ? '✔ valid' : '✘ calculated ' + H(m.crcCalc)}</span></span>`;
-    h += `<span class="k">Info</span><span>${sp('madinfo', H(m.info))}<span class="note c-dim">card publisher sector: ${cps || 'none'}</span></span></div><div class="madgrid">`;
-    for (const a of m.aids) h += `<div><span>S${String(a.sector).padStart(2, '0')}</span> ${sp(a.ac || a.fcc ? 'aid' : 'dim', a.aid)} <span>${esc(a.label)}</span></div>`;
-    return h + '</div>';
+    const used = m.aids.filter((x) => x.ac || x.fcc);
+    const apps = [...new Set(used.map((x) => x.label || x.aid))];
+    return `<div class="line">${title} · CRC ${m.crcOk ? sp('ok', '✔') : sp('err', '✘')} · ${used.length ? `${used.length} sector(s) assigned: ${esc(apps.join(', '))}` : 'no applications'}</div>`;
   }
 
   // section header toggles (delegated)
@@ -405,7 +370,7 @@
   function loadParser(file) {
     $('#error').hidden = true;
     try {
-      state.parser = parse(file, +$('#uid-len').value);
+      state.parser = parse(file);
       renderParser();
     } catch (err) {
       $('#error').textContent = `Couldn't parse ${file.name}: ${err.message}`;
@@ -414,9 +379,6 @@
   }
   setupDrop($('#dropzone'), loadParser);
   $('#load-sample').onclick = () => fetchSample('samples/sample_1k.mfd').then(loadParser).catch((e) => { $('#error').textContent = e.message; $('#error').hidden = false; });
-  $('#uid-len').onchange = () => state.parser && loadParser(state.parser.file);
-  $('#opt-ascii').onchange = renderParser;
-  $('#opt-collapse').onchange = renderParser;
 
   /* ═══════════════════ COMPARE VIEW ═══════════════════ */
 
@@ -489,10 +451,20 @@
       } else if (ia.type !== ib.type) {
         ch.push([`Block ${ia.block}`, `${esc(ia.type)} ${arrow} ${esc(ib.type)} <span class="c-muted">(${n} byte${n > 1 ? 's' : ''} differ)</span>`]);
       } else {
-        ch.push([`Block ${ia.block}`, `<span class="c-muted">${n} byte${n > 1 ? 's' : ''} differ</span>`]);
+        ch.push([`Block ${ia.block}`, null]);
       }
     });
     return ch;
+  }
+
+  function changeSummary(changes) {
+    const named = changes.filter((c) => !/^Block \d+$/.test(c[0])).map((c) => esc(c[0]));
+    const plain = changes.filter((c) => /^Block \d+$/.test(c[0])).map((c) => +c[0].split(' ')[1]);
+    if (plain.length) {
+      const r = plain.length === 1 ? `block ${plain[0]}` : (plain[plain.length - 1] - plain[0] === plain.length - 1 ? `blocks ${plain[0]}–${plain[plain.length - 1]}` : `blocks ${plain.join(', ')}`);
+      named.push(r + ' data');
+    }
+    return named.join(' · ');
   }
 
   function renderCompare() {
@@ -516,26 +488,14 @@
     }
     const secsChanged = perSec.filter((p) => p.nb);
 
-    let h = '<div class="overview">';
-    for (const [slot, X] of [['A', A], ['B', B]]) {
-      const m = X.res.manufacturer;
-      h += `<div class="stat"><div class="k"><span class="tag${slot}">${slot}</span>${esc(X.name)}</div><div class="v ${m ? 'c-uid' : ''}">${m ? spaced(m.uid) : '—'}</div><div class="s">${esc(X.res.card)} · ${esc(X.res.format)}</div></div>`;
-    }
-    h += `<div class="stat"><div class="k">Same card?</div><div class="v same-badge ${sameUid ? 'c-ok' : 'c-warn'}">${sameUid ? '✔ same UID' : '✘ different UID'}</div><div class="s">${A.res.size === B.res.size ? 'same layout' : `layouts differ — comparing first ${nsec} sectors`}</div></div>`;
-    h += `<div class="stat"><div class="k">Differences</div><div class="v">${bytesChanged ? `<span class="c-acc">${bytesChanged}</span> bytes` : '<span class="c-ok">identical</span>'}</div><div class="s">${blocksChanged} block(s) in ${secsChanged.length} sector(s)</div></div>`;
-    h += '</div>';
-
+    const fileTag = (slot, X) => `<span class="tag${slot}">${slot}</span>${esc(X.name)}${X.res.manufacturer ? ` <span class="c-dim">(${X.res.manufacturer.uid})</span>` : ''}`;
+    let h = `<div class="infobar">${fileTag('A', A)}<span class="dot">vs</span>${fileTag('B', B)}<span class="dot">·</span>
+      <span class="${sameUid ? 'c-ok' : 'c-warn'}">${sameUid ? 'same card' : 'different cards'}</span><span class="dot">·</span>
+      <span>${bytesChanged ? `${sp('acc', bytesChanged)} bytes differ in ${blocksChanged} block(s)` : sp('ok', 'identical')}</span></div>`;
     if (secsChanged.length) {
-      h += `<div class="panel"><h2>Changes<span class="count">${secsChanged.length} sector(s)</span></h2><ul class="findings">`;
-      for (const p of secsChanged) {
-        h += `<li class="f-warn"><span class="ico c-acc">Δ</span><span class="where"><a href="#cmp-${p.s}" data-jump="${p.s}">S${String(p.s).padStart(2, '0')}</a></span><span class="msg">${p.changes.map((c) => esc(c[0])).join(' · ')}</span></li>`;
-      }
-      h += '</ul></div>';
-      h += '<div class="secnav">' + secsChanged.map((p) => `<a href="#cmp-${p.s}" data-jump="${p.s}" class="warnk">S${p.s}</a>`).join('') + '</div>';
+      h += '<ul class="findings panel">' + secsChanged.map((p) =>
+        `<li><span class="ico c-acc">Δ</span><span class="where"><a href="#cmp-${p.s}" data-jump="${p.s}">S${String(p.s).padStart(2, '0')}</a></span><span class="msg">${changeSummary(p.changes)}</span></li>`).join('') + '</ul>';
     }
-    h += `<div class="legend"><span><span class="c-acc" style="box-shadow:inset 0 -2px 0 var(--acc);background:rgba(255,215,0,.16);padding:0 3px">XX</span> byte differs</span><span class="sep">│</span>
-      <span>changed block numbers in ${sp('acc', 'yellow')}</span><span class="sep">│</span><span>hover a highlighted byte to see the other side's value</span></div>`;
-
     let shown = 0;
     for (const p of perSec) {
       if (onlyChanged && !p.nb) continue;
@@ -547,18 +507,19 @@
         <div class="sec-body"><div class="cmp-cols">`;
       for (const [slot, X, sec, other] of [['A', A, sA, B], ['B', B, sB, A]]) {
         h += `<div class="cmp-col"><div class="colhead"><span class="tag${slot}">${slot}</span>${esc(X.name)}</div><div class="hexdump cmp">`;
-        sec.blockInfo.forEach((info, i) => {
-          if (info.type === 'trailer') info.accValid = sec.accessValid;
-          h += hexRow(X.d, info, X.res.manufacturer, {
+        sec.blockInfo.forEach((info) => { if (info.type === 'trailer') info.accValid = sec.accessValid; });
+        const otherSec = slot === 'A' ? sB : sA;
+        h += foldRows(sec.blockInfo, (info, i) => info.type === 'empty' && otherSec.blockInfo[i].type === 'empty' && !masks[i].some(Boolean),
+          (info, i) => hexRow(X.d, info, X.res.manufacturer, {
             diff: masks[i], changed: masks[i].some(Boolean), side: slot, compact: true,
             other: other.d.block(info.block), otherKnown: other.d.bknown(info.block),
-          });
-        });
+          }));
         h += '</div></div>';
       }
       h += '</div>';
-      if (p.changes.length) {
-        h += '<ul class="changes">' + p.changes.map(([w, t]) => `<li><span class="what">${esc(w)}</span><span>${t}</span></li>`).join('') + '</ul>';
+      const shownCh = p.changes.filter((c) => c[1]);
+      if (shownCh.length) {
+        h += '<ul class="changes">' + shownCh.map(([w, t]) => `<li><span class="what">${esc(w)}</span><span>${t}</span></li>`).join('') + '</ul>';
       }
       h += '</div></section>';
     }
@@ -571,68 +532,4 @@
     rep.hidden = false;
   }
 
-  /* ═══════════════════ ACL CALCULATOR ═══════════════════ */
-
-  const PRESETS = [
-    ['Transport (factory)', ['000', '000', '000', '001']],
-    ['Key B manages, data open', ['000', '000', '000', '011']],
-    ['MAD sector 0', ['100', '100', '100', '011']],
-    ['Value block in blk 1', ['100', '110', '100', '011']],
-    ['Read-only, frozen trailer', ['010', '010', '010', '110']],
-    ['Locked down', ['111', '111', '111', '111']],
-  ];
-
-  function buildAclBuilder() {
-    const opts = (table, isTrailer) => Object.entries(table).map(([c, row]) =>
-      `<option value="${c}">${c} — ${esc(isTrailer ? row[6] : row[4])}</option>`).join('');
-    $('#acl-builder').innerHTML = [0, 1, 2].map((g) =>
-      `<label>Block ${g} <span class="c-dim">(4K big sectors: blocks ${g * 5}–${g * 5 + 4})</span><select data-g="${g}">${opts(M.DATA_ACL)}</select></label>`).join('') +
-      `<label>Sector trailer<select data-g="3">${opts(M.TRAILER_ACL, true)}</select></label>`;
-    $$('#acl-builder select').forEach((s) => (s.onchange = () => {
-      const conds = $$('#acl-builder select').map((x) => x.value);
-      $('#acl-hex').value = M.encodeAccess(conds).map(H).join(' ');
-      updateAcl(false);
-    }));
-    const pr = $('#acl-presets');
-    const seen = new Set();
-    PRESETS.forEach(([label, conds]) => {
-      const hex = M.encodeAccess(conds).map(H).join(' ');
-      const key = label + hex;
-      if (seen.has(key)) return;
-      seen.add(key);
-      const b = document.createElement('button');
-      b.className = 'chip';
-      b.textContent = `${label} · ${hex}`;
-      b.onclick = () => { $('#acl-hex').value = hex; updateAcl(true); };
-      pr.appendChild(b);
-    });
-  }
-
-  function updateAcl(syncSelects = true) {
-    const raw = $('#acl-hex').value.replace(/[^0-9a-f]/gi, '');
-    const gpbRaw = $('#acl-gpb').value.replace(/[^0-9a-f]/gi, '').padStart(2, '0').slice(-2);
-    const st = $('#acl-status');
-    if (raw.length !== 6) {
-      st.className = 'pill err'; st.textContent = 'need 3 bytes';
-      $('#acl-output').innerHTML = ''; $('#acl-trailer').textContent = '';
-      return;
-    }
-    const b = raw.match(/../g).map((x) => parseInt(x, 16));
-    const { conds, valid } = M.decodeAccess(b[0], b[1], b[2]);
-    const kbr = valid && M.KEYB_READABLE.has(conds[3]);
-    st.className = 'pill ' + (valid ? 'ok' : 'err');
-    st.textContent = valid ? '✔ valid' : '✘ invalid — would brick the sector';
-    if (syncSelects) $$('#acl-builder select').forEach((s) => (s.value = conds[+s.dataset.g]));
-    $('#acl-trailer').innerHTML = `${sp('keya', 'FFFFFFFFFFFF')}${sp('acc', raw.toUpperCase())}${sp('gpb', gpbRaw.toUpperCase())}${sp('keyb', 'FFFFFFFFFFFF')} <span class="c-dim">(keys shown as defaults)</span>`;
-    let html = aclTables(conds, valid, kbr, 0, 4);
-    if (!valid) {
-      const fixed = M.encodeAccess(conds).map(H).join(' ');
-      html += `<div class="footnote">Correctly inverted version of these conditions: <code class="c-acc">${fixed}</code></div>`;
-    }
-    $('#acl-output').innerHTML = html;
-  }
-  buildAclBuilder();
-  $('#acl-hex').addEventListener('input', () => updateAcl(true));
-  $('#acl-gpb').addEventListener('input', () => updateAcl(false));
-  updateAcl(true);
 })();
