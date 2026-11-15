@@ -6,7 +6,7 @@
   <title>MIFARE Classic Dump Parser — decode .mfd keys &amp; access bits</title>
   <meta name="description" content="Drop a MIFARE Classic dump (.mfd, .bin, .eml, .mct, Flipper .nfc) and get a colour-coded breakdown of keys, access bits, value blocks and MAD. Runs entirely in your browser.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='3' y='7' width='26' height='18' rx='3' fill='%230d1117' stroke='%23ffd700' stroke-width='2'/><rect x='7' y='12' width='7' height='6' rx='1' fill='%235fd75f'/><rect x='17' y='12' width='8' height='2' fill='%2300d7ff'/><rect x='17' y='16' width='5' height='2' fill='%23ff87ff'/></svg>">
-  <link rel="stylesheet" href="assets/style.css?v=4fd00720">
+  <link rel="stylesheet" href="assets/style.css?v=8b32dba3">
 </head>
 <body>
   <header class="topbar">
@@ -51,13 +51,21 @@
             <div class="dz-file mono" id="file-A">no file</div>
           </div>
         </div>
-        <button class="btn swap" id="cmp-swap" title="Swap A and B">⇄</button>
         <div class="dropzone cmp-drop" id="drop-B" tabindex="0" data-slot="B">
           <input type="file" hidden>
           <div class="dz-inner">
             <div class="slot-label">B</div>
             <div class="dz-title">Drop dump B or <u>browse</u></div>
             <div class="dz-file mono" id="file-B">no file</div>
+          </div>
+        </div>
+        <div class="dropzone cmp-drop optional" id="drop-C" tabindex="0" data-slot="C">
+          <input type="file" hidden>
+          <button class="clear" id="clear-C" title="Remove dump C">✕</button>
+          <div class="dz-inner">
+            <div class="slot-label">C</div>
+            <div class="dz-title">Add a third dump</div>
+            <div class="dz-file mono" id="file-C">optional</div>
           </div>
         </div>
       </div>
@@ -69,7 +77,7 @@
 
   <footer><span>MIT · <a href="https://github.com/YoussefHawash/mfid-veiwer">source</a></span><span>For cards you own or are authorised to test.</span></footer>
 
-  <script src="assets/mifare.js?v=4fd00720"></script>
-  <script src="assets/app.js?v=4fd00720"></script>
+  <script src="assets/mifare.js?v=8b32dba3"></script>
+  <script src="assets/app.js?v=8b32dba3"></script>
 </body>
 </html>

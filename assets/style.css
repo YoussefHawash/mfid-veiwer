@@ -266,3 +266,22 @@ details.blankrun[open] > summary { margin-bottom: 12px; }
 details.blankrun[open] > summary::before { content: '▾ '; }
 .row.fold { color: var(--dim); font-style: italic; }
 .row.fold .bn { width: auto; min-width: 7.5ch; padding-right: 3ch; text-align: right; }
+
+/* ── three-way compare ── */
+.cmp-drops { grid-template-columns: 1fr 1fr 1fr; }
+.cmp-drop.optional:not(.loaded) { border-style: dashed; opacity: .75; }
+.cmp-drop.optional:not(.loaded):hover { opacity: 1; }
+#drop-C .slot-label, .tagC { background: var(--gpb); }
+.tagC { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; font: 700 11px var(--mono);
+  color: var(--bg); margin-right: 6px; vertical-align: 1px; }
+.cmp-drop .clear { display: none; position: absolute; top: 8px; right: 10px; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; }
+.cmp-drop.loaded .clear { display: block; }
+.cmp-drop .clear:hover { color: var(--err); }
+.changes li > span:last-child { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; }
+#tab-compare:has(.cmp-cols.three) { max-width: none; }
+main:has(#tab-compare.active .cmp-cols.three) { max-width: 1560px; }
+.cmp-cols.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cmp-cols.three .hexdump.cmp { font-size: 12px; }
+.cmp-cols.three .row .grp { display: none; }
+@media (max-width: 1100px) { .cmp-cols.three { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .cmp-drops { grid-template-columns: 1fr; } }

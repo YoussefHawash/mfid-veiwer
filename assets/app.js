@@ -135,7 +135,7 @@
       const f = fields[i];
       const diff = opt.diff && opt.diff[i];
       let title = f.title;
-      if (diff && opt.other) title = `${title ? title + ' · ' : ''}${opt.side === 'A' ? 'B' : 'A'} has ${opt.otherKnown[i] ? H(opt.other[i]) : '--'}`;
+      if (diff && opt.others) title = `${title ? title + ' · ' : ''}${opt.others.map((o) => `${o.slot}: ${o.kn[i] ? H(o.blk[i]) : '--'}`).join(', ')}`;
       const cls = (kn[i] ? 'c-' + f.cls : 'c-unknown') + (diff ? ' diff' : '');
       bytes += `<span class="${cls}"${f.f ? ` data-f="${f.f}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${kn[i] ? H(blk[i]) : '--'}</span>`;
     }
@@ -150,7 +150,7 @@
     return `<div class="row${opt.changed ? ' changed' : ''}"><span class="bn">${info.block}</span><span class="grp">${grp}</span>` +
       `<span class="bar">│</span><span class="bytes">${bytes}</span>` +
       (opt.ascii ? `<span class="bar">│</span><span class="ascii">${ascii}</span>` : '') +
-      `<span class="bar">│</span><span class="tag">${blockTag(info, opt.compact)}</span></div>`;
+      (opt.noTag ? '' : `<span class="bar">│</span><span class="tag">${blockTag(info, opt.compact)}</span>`) + '</div>';
   }
 
   /** Render rows, folding 3+ consecutive "quiet" blocks into a single line. */
@@ -380,14 +380,16 @@
   setupDrop($('#dropzone'), loadParser);
   $('#load-sample').onclick = () => fetchSample('samples/sample_1k.mfd').then(loadParser).catch((e) => { $('#error').textContent = e.message; $('#error').hidden = false; });
 
-  /* ═══════════════════ COMPARE VIEW ═══════════════════ */
+  /* ═══════════════════ COMPARE VIEW (2 or 3 dumps) ═══════════════════ */
+
+  const SLOTS = ['A', 'B', 'C'];
+  state.cmp.C = null;
 
   function setCmp(slot, file) {
     $('#cmp-error').hidden = true;
     try {
       state.cmp[slot] = parse(file);
-      const z = $('#drop-' + slot);
-      z.classList.add('loaded');
+      $('#drop-' + slot).classList.add('loaded');
       const r = state.cmp[slot].res;
       $('#file-' + slot).innerHTML = `${esc(file.name)}<br><span class="c-muted">${esc(r.card)}${r.manufacturer ? ' · UID ' + r.manufacturer.uid : ''}</span>`;
       renderCompare();
@@ -397,58 +399,59 @@
     }
   }
   $$('.cmp-drop').forEach((z) => setupDrop(z, (f) => setCmp(z.dataset.slot, f)));
-  $('#cmp-swap').onclick = () => {
-    const { A, B } = state.cmp;
-    state.cmp = { A: null, B: null };
-    $$('.cmp-drop').forEach((z) => z.classList.remove('loaded'));
-    ['A', 'B'].forEach((s) => ($('#file-' + s).textContent = 'no file'));
-    if (B) setCmp('A', B.file);
-    if (A) setCmp('B', A.file);
-    if (!A || !B) renderCompare();
-  };
+  $('#clear-C').addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.cmp.C = null;
+    $('#drop-C').classList.remove('loaded');
+    $('#file-C').textContent = 'optional';
+    renderCompare();
+  });
   $('#cmp-only').onchange = renderCompare;
 
-  function diffBlock(dA, dB, b) {
-    const a = dA.block(b), bb = dB.block(b), ka = dA.bknown(b), kb = dB.bknown(b);
+  /** Per-byte mask: true where the loaded dumps don't all agree. */
+  function diffBlock(dumps, b) {
+    const blks = dumps.map((x) => x.d.block(b)), kns = dumps.map((x) => x.d.bknown(b));
     const mask = [];
-    for (let i = 0; i < 16; i++) mask.push(ka[i] !== kb[i] || (ka[i] && a[i] !== bb[i]));
+    for (let i = 0; i < 16; i++) {
+      let diff = false;
+      for (let k = 1; k < dumps.length; k++) {
+        if (kns[k][i] !== kns[0][i] || (kns[0][i] && blks[k][i] !== blks[0][i])) diff = true;
+      }
+      mask.push(diff);
+    }
     return mask;
   }
 
-  function sectorChanges(sA, sB, A, B) {
+  const allSame = (arr) => arr.every((v) => v === arr[0]);
+  const slotTag = (slot) => `<span class="tag${slot}">${slot}</span>`;
+
+  /** Changes in one sector across the loaded dumps: [label, html|null]. */
+  function sectorChanges(secs, X) {
     const ch = [];
-    const arrow = '<span class="arrow">→</span>';
-    const fmtKey = (k, cls) => (k ? sp(cls, k) : sp('unknown', 'not in dump'));
-    if (sA.keyA !== sB.keyA) ch.push(['Key A', `${fmtKey(sA.keyA, 'keya')} ${arrow} ${fmtKey(sB.keyA, 'keya')}`]);
-    if (sA.keyB !== sB.keyB) ch.push(['Key B', `${fmtKey(sA.keyB, 'keyb')} ${arrow} ${fmtKey(sB.keyB, 'keyb')}`]);
-    if (sA.accessBytes !== sB.accessBytes) {
-      let detail = '';
-      if (sA.conds && sB.conds) {
-        const parts = [];
-        for (let g = 0; g < 4; g++) {
-          if (sA.conds[g] === sB.conds[g]) continue;
-          const lbl = g === 3 ? 'trailer' : (sA.blocks === 4 ? `blk ${sA.firstBlock + g}` : `blks ${sA.firstBlock + g * 5}–${sA.firstBlock + g * 5 + 4}`);
-          const mean = (c) => (g === 3 ? M.TRAILER_ACL[c][6] : M.DATA_ACL[c][4]);
-          parts.push(`${lbl}: <i>${esc(mean(sA.conds[g]))}</i> → <i>${esc(mean(sB.conds[g]))}</i>`);
-        }
-        detail = `<div class="c-muted small" style="flex-basis:100%;padding-left:130px">${parts.join('<br>')}</div>`;
-      }
-      ch.push(['Access bits', `${sp(sA.accessValid === false ? 'bad' : 'acc', spaced(sA.accessBytes) || '--')} ${arrow} ${sp(sB.accessValid === false ? 'bad' : 'acc', spaced(sB.accessBytes) || '--')}${detail}`]);
+    const list = (vals, fmt) => vals.map((v, k) => `${slotTag(X[k].slot)}${fmt(v)}`).join('  ');
+    const fmtKey = (cls) => (k) => (k ? sp(cls, k) : sp('unknown', '—'));
+    if (!allSame(secs.map((s) => s.keyA))) ch.push(['Key A', list(secs.map((s) => s.keyA), fmtKey('keya'))]);
+    if (!allSame(secs.map((s) => s.keyB))) ch.push(['Key B', list(secs.map((s) => s.keyB), fmtKey('keyb'))]);
+    if (!allSame(secs.map((s) => s.accessBytes))) {
+      ch.push(['Access bits', list(secs, (s) => {
+        const meaning = s.conds ? ` <span class="c-dim">${esc(M.TRAILER_ACL[s.conds[3]][6])}</span>` : '';
+        return sp(s.accessValid === false ? 'bad' : 'acc', spaced(s.accessBytes) || '—') + meaning;
+      })]);
     }
-    if (sA.gpb !== sB.gpb) ch.push(['GPB', `${sp('gpb', sA.gpb === null ? '--' : H(sA.gpb))} ${arrow} ${sp('gpb', sB.gpb === null ? '--' : H(sB.gpb))}`]);
-    sA.blockInfo.forEach((ia, i) => {
-      const ib = sB.blockInfo[i];
-      if (ia.type === 'trailer') return;
-      const mask = diffBlock(A.d, B.d, ia.block);
-      const n = mask.filter(Boolean).length;
-      if (!n) return;
-      if (ia.type === 'value' && ib.type === 'value') {
-        const delta = ib.value - ia.value;
-        ch.push([`Block ${ia.block} value`, `${sp('value', ia.value)} ${arrow} ${sp('value', ib.value)} <span class="${delta >= 0 ? 'delta-pos' : 'delta-neg'}">(${delta >= 0 ? '+' : ''}${delta})</span>${ia.addr !== ib.addr ? ` · addr ${H(ia.addr)} → ${H(ib.addr)}` : ''}`]);
-      } else if (ia.type !== ib.type) {
-        ch.push([`Block ${ia.block}`, `${esc(ia.type)} ${arrow} ${esc(ib.type)} <span class="c-muted">(${n} byte${n > 1 ? 's' : ''} differ)</span>`]);
+    if (!allSame(secs.map((s) => s.gpb))) ch.push(['GPB', list(secs.map((s) => s.gpb), (g) => sp('gpb', g === null ? '—' : H(g)))]);
+    secs[0].blockInfo.forEach((i0, i) => {
+      if (i0.type === 'trailer') return;
+      const infos = secs.map((s) => s.blockInfo[i]);
+      if (!diffBlock(X, i0.block).some(Boolean)) return;
+      if (infos.every((x) => x.type === 'value')) {
+        ch.push([`Block ${i0.block} value`, list(infos, (x) => {
+          const delta = x.value - infos[0].value;
+          return sp('value', x.value) + (x === infos[0] || !delta ? '' : ` <span class="${delta > 0 ? 'delta-pos' : 'delta-neg'}">(${delta > 0 ? '+' : ''}${delta})</span>`);
+        })]);
+      } else if (!allSame(infos.map((x) => x.type))) {
+        ch.push([`Block ${i0.block}`, list(infos, (x) => esc(x.type))]);
       } else {
-        ch.push([`Block ${ia.block}`, null]);
+        ch.push([`Block ${i0.block}`, null]);
       }
     });
     return ch;
@@ -465,54 +468,57 @@
   }
 
   function renderCompare() {
-    const { A, B } = state.cmp;
+    const X = SLOTS.filter((s) => state.cmp[s]).map((s) => ({ slot: s, ...state.cmp[s] }));
     const rep = $('#cmp-report');
-    if (!A || !B) { rep.hidden = true; return; }
+    if (X.length < 2) { rep.hidden = true; return; }
     const onlyChanged = $('#cmp-only').checked;
-    const nsec = Math.min(A.res.nsec, B.res.nsec);
-    const mA = A.res.manufacturer, mB = B.res.manufacturer;
-    const sameUid = mA && mB && mA.uid === mB.uid;
+    const nsec = Math.min(...X.map((x) => x.res.nsec));
+    const uids = X.map((x) => x.res.manufacturer && x.res.manufacturer.uid);
+    const sameUid = uids[0] && allSame(uids);
 
     const perSec = [];
     let blocksChanged = 0, bytesChanged = 0;
     for (let s = 0; s < nsec; s++) {
-      const sA = A.res.sectors[s], sB = B.res.sectors[s];
-      const masks = sA.blockInfo.map((info) => diffBlock(A.d, B.d, info.block));
+      const secs = X.map((x) => x.res.sectors[s]);
+      const masks = secs[0].blockInfo.map((info) => diffBlock(X, info.block));
       const nb = masks.filter((m) => m.some(Boolean)).length;
       blocksChanged += nb;
       bytesChanged += masks.reduce((t, m) => t + m.filter(Boolean).length, 0);
-      perSec.push({ s, sA, sB, masks, nb, changes: sectorChanges(sA, sB, A, B) });
+      perSec.push({ s, secs, masks, nb, changes: nb ? sectorChanges(secs, X) : [] });
     }
     const secsChanged = perSec.filter((p) => p.nb);
 
-    const fileTag = (slot, X) => `<span class="tag${slot}">${slot}</span>${esc(X.name)}${X.res.manufacturer ? ` <span class="c-dim">(${X.res.manufacturer.uid})</span>` : ''}`;
-    let h = `<div class="infobar">${fileTag('A', A)}<span class="dot">vs</span>${fileTag('B', B)}<span class="dot">·</span>
+    const fileTag = (x) => `${slotTag(x.slot)}${esc(x.name)}${x.res.manufacturer ? ` <span class="c-dim">(${x.res.manufacturer.uid})</span>` : ''}`;
+    let h = `<div class="infobar">${X.map(fileTag).join('<span class="dot">vs</span>')}<span class="dot">·</span>
       <span class="${sameUid ? 'c-ok' : 'c-warn'}">${sameUid ? 'same card' : 'different cards'}</span><span class="dot">·</span>
       <span>${bytesChanged ? `${sp('acc', bytesChanged)} bytes differ in ${blocksChanged} block(s)` : sp('ok', 'identical')}</span></div>`;
     if (secsChanged.length) {
       h += '<ul class="findings panel">' + secsChanged.map((p) =>
         `<li><span class="ico c-acc">Δ</span><span class="where"><a href="#cmp-${p.s}" data-jump="${p.s}">S${String(p.s).padStart(2, '0')}</a></span><span class="msg">${changeSummary(p.changes)}</span></li>`).join('') + '</ul>';
     }
+
+    const three = X.length === 3;
     let shown = 0;
     for (const p of perSec) {
       if (onlyChanged && !p.nb) continue;
       shown++;
-      const { s, sA, sB, masks } = p;
+      const { s, secs, masks } = p;
       h += `<section class="sector" id="cmp-${s}"><div class="sec-head"><span class="chev">▾</span><h3>Sector ${s}</h3>
-        <span class="blocks">blocks ${sA.firstBlock}–${sA.trailerBlock}</span>
+        <span class="blocks">blocks ${secs[0].firstBlock}–${secs[0].trailerBlock}</span>
         <span class="badges">${p.nb ? `<span class="badge b-warn">${p.nb} block(s) changed</span>` : '<span class="badge b-ok">identical</span>'}</span></div>
-        <div class="sec-body"><div class="cmp-cols">`;
-      for (const [slot, X, sec, other] of [['A', A, sA, B], ['B', B, sB, A]]) {
-        h += `<div class="cmp-col"><div class="colhead"><span class="tag${slot}">${slot}</span>${esc(X.name)}</div><div class="hexdump cmp">`;
+        <div class="sec-body"><div class="cmp-cols${three ? ' three' : ''}">`;
+      X.forEach((x, k) => {
+        const sec = secs[k];
         sec.blockInfo.forEach((info) => { if (info.type === 'trailer') info.accValid = sec.accessValid; });
-        const otherSec = slot === 'A' ? sB : sA;
-        h += foldRows(sec.blockInfo, (info, i) => info.type === 'empty' && otherSec.blockInfo[i].type === 'empty' && !masks[i].some(Boolean),
-          (info, i) => hexRow(X.d, info, X.res.manufacturer, {
-            diff: masks[i], changed: masks[i].some(Boolean), side: slot, compact: true,
-            other: other.d.block(info.block), otherKnown: other.d.bknown(info.block),
+        h += `<div class="cmp-col"><div class="colhead">${slotTag(x.slot)}${esc(x.name)}</div><div class="hexdump cmp">`;
+        h += foldRows(sec.blockInfo,
+          (info, i) => secs.every((sc) => sc.blockInfo[i].type === 'empty') && !masks[i].some(Boolean),
+          (info, i) => hexRow(x.d, info, x.res.manufacturer, {
+            diff: masks[i], changed: masks[i].some(Boolean), compact: true, noTag: three,
+            others: X.filter((o) => o !== x).map((o) => ({ slot: o.slot, blk: o.d.block(info.block), kn: o.d.bknown(info.block) })),
           }));
         h += '</div></div>';
-      }
+      });
       h += '</div>';
       const shownCh = p.changes.filter((c) => c[1]);
       if (shownCh.length) {
@@ -520,10 +526,9 @@
       }
       h += '</div></section>';
     }
-    if (!shown) h += '<div class="panel c-ok">✔ The two dumps are identical in every compared sector.</div>';
-    if (A.res.nsec !== B.res.nsec) {
-      const bigger = A.res.nsec > B.res.nsec ? 'A' : 'B';
-      h += `<div class="panel c-warn">Dump ${bigger} has ${Math.abs(A.res.nsec - B.res.nsec)} extra sector(s) that were not compared.</div>`;
+    if (!shown) h += `<div class="panel c-ok">✔ The ${X.length === 3 ? 'three' : 'two'} dumps are identical in every compared sector.</div>`;
+    if (!allSame(X.map((x) => x.res.nsec))) {
+      h += `<div class="panel c-warn">The dumps have different sizes — only the first ${nsec} sectors were compared.</div>`;
     }
     rep.innerHTML = h;
     rep.hidden = false;
