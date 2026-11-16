@@ -407,6 +407,112 @@
     renderCompare();
   });
   $('#cmp-only').onchange = renderCompare;
+  state.cmpView = 'side';
+  $$('#cmp-view button').forEach((b) => (b.onclick = () => {
+    state.cmpView = b.dataset.v;
+    $$('#cmp-view button').forEach((x) => x.classList.toggle('on', x === b));
+    $('#cmp-only-wrap').hidden = state.cmpView !== 'side';
+    renderCompare();
+  }));
+
+  const popcount = (n) => { let c = 0; while (n) { c += n & 1; n >>= 1; } return c; };
+
+  /** For one block: per byte, the OR of (first ^ other) over all dumps → which bits differ. */
+  function bitMask(X, b) {
+    const blks = X.map((x) => x.d.block(b)), kns = X.map((x) => x.d.bknown(b));
+    const out = [];
+    for (let i = 0; i < 16; i++) {
+      let m = 0;
+      for (let k = 1; k < X.length; k++) {
+        if (kns[k][i] !== kns[0][i]) m = 0xff;
+        else if (kns[0][i]) m |= blks[0][i] ^ blks[k][i];
+      }
+      out.push(m);
+    }
+    return out;
+  }
+
+  /** 8-bit binary string with differing bits highlighted. */
+  function bitsHTML(v, known, mask) {
+    if (!known) return '<span class="c-unknown">--------</span>';
+    let h = '';
+    for (let j = 7; j >= 0; j--) {
+      const bit = (v >> j) & 1;
+      h += (mask >> j) & 1 ? `<b class="bd">${bit}</b>` : `<span class="b${bit}">${bit}</span>`;
+    }
+    return h;
+  }
+
+  /** All changed blocks across the compared sectors, with field info from dump A. */
+  function changedBlocks(X, perSec) {
+    const out = [];
+    for (const p of perSec) {
+      p.masks.forEach((m, i) => {
+        if (!m.some(Boolean)) return;
+        const info = p.secs[0].blockInfo[i];
+        out.push({ sector: p.s, info, bmask: bitMask(X, info.block), fields: byteFields(info, X[0].res.manufacturer) });
+      });
+    }
+    return out;
+  }
+
+  function renderByteTable(X, blocks) {
+    let h = '<div class="panel tight"><div class="tablewrap"><table class="bytetable"><thead><tr><th>Sector</th><th>Block</th><th>Byte</th><th>Field</th>' +
+      X.map((x) => `<th>${slotTag(x.slot)}</th>`).join('') + '<th>Bits Δ</th></tr></thead><tbody>';
+    for (const cb of blocks) {
+      for (let i = 0; i < 16; i++) {
+        const m = cb.bmask[i];
+        if (!m) continue;
+        const f = cb.fields[i];
+        const field = f.title ? f.title.replace(/ = .*$/, '') : (cb.info.type === 'empty' ? 'data (empty in A)' : 'data');
+        h += `<tr><td class="c-muted"><a href="#" data-cmpjump="${cb.sector}">S${String(cb.sector).padStart(2, '0')}</a></td><td>${cb.info.block}</td><td>${i}</td><td class="c-${f.cls || 'data'} fieldname">${esc(field)}</td>`;
+        for (const x of X) {
+          const v = x.d.block(cb.info.block)[i], kn = x.d.bknown(cb.info.block)[i];
+          h += `<td class="bytecell">${kn ? sp('head', H(v)) : sp('unknown', '--')} <span class="bitstr">${bitsHTML(v, kn, m)}</span></td>`;
+        }
+        h += `<td><span class="c-acc">${popcount(m)}</span> <span class="c-dim">mask ${H(m)}</span></td></tr>`;
+      }
+    }
+    return h + '</tbody></table></div></div>';
+  }
+
+  function renderBitView(X, blocks) {
+    let h = `<div class="legend"><b class="bd">1</b> bit differs · <span class="b1">1</span> / <span class="b0">0</span> same in all dumps · hover a byte for its field</div>`;
+    for (const cb of blocks) {
+      const nbits = cb.bmask.reduce((t, m) => t + popcount(m), 0);
+      const nbytes = cb.bmask.filter(Boolean).length;
+      h += `<section class="sector bitblock"><div class="sec-head"><span class="chev">▾</span><h3>Block ${cb.info.block}</h3>
+        <span class="blocks">sector ${cb.sector} · ${esc(cb.info.type)}</span>
+        <span class="badges"><span class="badge b-warn">${nbits} bit${nbits > 1 ? 's' : ''} in ${nbytes} byte${nbytes > 1 ? 's' : ''}</span></span></div><div class="sec-body">`;
+      for (const half of [0, 8]) {
+        h += '<div class="bitgrid"><div class="bitrow head"><span class="lbl"></span>';
+        for (let i = half; i < half + 8; i++) h += `<span class="cell${cb.bmask[i] ? ' chg' : ''}">byte ${i}</span>`;
+        h += '</div>';
+        for (const x of X) {
+          const blk = x.d.block(cb.info.block), kn = x.d.bknown(cb.info.block);
+          h += `<div class="bitrow"><span class="lbl">${slotTag(x.slot)}</span>`;
+          for (let i = half; i < half + 8; i++) {
+            const f = cb.fields[i];
+            h += `<span class="cell${cb.bmask[i] ? ' chg' : ''}" title="${esc((f.title || 'data') + ' — ' + (kn[i] ? '0x' + H(blk[i]) : 'unknown'))}">` +
+              `<span class="hx c-${kn[i] ? (f.cls || 'data') : 'unknown'}">${kn[i] ? H(blk[i]) : '--'}</span>${bitsHTML(blk[i], kn[i], cb.bmask[i])}</span>`;
+          }
+          h += '</div>';
+        }
+        h += '</div>';
+      }
+      h += '</div></section>';
+    }
+    return h;
+  }
+
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-cmpjump]');
+    if (!a) return;
+    e.preventDefault();
+    $$('#cmp-view button').find((b) => b.dataset.v === 'side').click();
+    const el = $('#cmp-' + a.dataset.cmpjump);
+    if (el) { el.classList.remove('collapsed'); el.scrollIntoView({ block: 'start' }); }
+  });
 
   /** Per-byte mask: true where the loaded dumps don't all agree. */
   function diffBlock(dumps, b) {
@@ -488,15 +594,24 @@
     }
     const secsChanged = perSec.filter((p) => p.nb);
 
+    const cblocks = changedBlocks(X, perSec);
+    const bitsChanged = cblocks.reduce((t, cb) => t + cb.bmask.reduce((u, m) => u + popcount(m), 0), 0);
     const fileTag = (x) => `${slotTag(x.slot)}${esc(x.name)}${x.res.manufacturer ? ` <span class="c-dim">(${x.res.manufacturer.uid})</span>` : ''}`;
     let h = `<div class="infobar">${X.map(fileTag).join('<span class="dot">vs</span>')}<span class="dot">·</span>
       <span class="${sameUid ? 'c-ok' : 'c-warn'}">${sameUid ? 'same card' : 'different cards'}</span><span class="dot">·</span>
-      <span>${bytesChanged ? `${sp('acc', bytesChanged)} bytes differ in ${blocksChanged} block(s)` : sp('ok', 'identical')}</span></div>`;
+      <span>${bytesChanged ? `${sp('acc', bytesChanged)} bytes (${sp('acc', bitsChanged)} bits) differ in ${blocksChanged} block(s)` : sp('ok', 'identical')}</span></div>`;
     if (secsChanged.length) {
       h += '<ul class="findings panel">' + secsChanged.map((p) =>
         `<li><span class="ico c-acc">Δ</span><span class="where"><a href="#cmp-${p.s}" data-jump="${p.s}">S${String(p.s).padStart(2, '0')}</a></span><span class="msg">${changeSummary(p.changes)}</span></li>`).join('') + '</ul>';
     }
 
+    if (state.cmpView !== 'side') {
+      if (!cblocks.length) h += `<div class="panel c-ok">✔ No differences.</div>`;
+      else h += state.cmpView === 'bytes' ? renderByteTable(X, cblocks) : renderBitView(X, cblocks);
+      rep.innerHTML = h;
+      rep.hidden = false;
+      return;
+    }
     const three = X.length === 3;
     let shown = 0;
     for (const p of perSec) {

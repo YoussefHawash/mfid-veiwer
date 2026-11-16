@@ -6,7 +6,7 @@
   <title>MIFARE Classic Dump Parser — decode .mfd keys &amp; access bits</title>
   <meta name="description" content="Drop a MIFARE Classic dump (.mfd, .bin, .eml, .mct, Flipper .nfc) and get a colour-coded breakdown of keys, access bits, value blocks and MAD. Runs entirely in your browser.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='3' y='7' width='26' height='18' rx='3' fill='%230d1117' stroke='%23ffd700' stroke-width='2'/><rect x='7' y='12' width='7' height='6' rx='1' fill='%235fd75f'/><rect x='17' y='12' width='8' height='2' fill='%2300d7ff'/><rect x='17' y='16' width='5' height='2' fill='%23ff87ff'/></svg>">
-  <link rel="stylesheet" href="assets/style.css?v=8b32dba3">
+  <link rel="stylesheet" href="assets/style.css?v=78a88f4f">
 </head>
 <body>
   <header class="topbar">
@@ -69,7 +69,12 @@
           </div>
         </div>
       </div>
-      <div class="dz-actions"><label class="opt"><input type="checkbox" id="cmp-only" checked> Only changed sectors</label></div>
+      <div class="dz-actions">
+        <div class="seg" id="cmp-view" role="tablist">
+          <button data-v="side" class="on">Side by side</button><button data-v="bytes">Byte by byte</button><button data-v="bits">Bit by bit</button>
+        </div>
+        <label class="opt" id="cmp-only-wrap"><input type="checkbox" id="cmp-only" checked> Only changed sectors</label>
+      </div>
       <div id="cmp-error" class="error" hidden></div>
       <div id="cmp-report" hidden></div>
     </section>
@@ -77,7 +82,7 @@
 
   <footer><span>MIT · <a href="https://github.com/YoussefHawash/mfid-veiwer">source</a></span><span>For cards you own or are authorised to test.</span></footer>
 
-  <script src="assets/mifare.js?v=8b32dba3"></script>
-  <script src="assets/app.js?v=8b32dba3"></script>
+  <script src="assets/mifare.js?v=78a88f4f"></script>
+  <script src="assets/app.js?v=78a88f4f"></script>
 </body>
 </html>

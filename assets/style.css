@@ -285,3 +285,31 @@ main:has(#tab-compare.active .cmp-cols.three) { max-width: 1560px; }
 .cmp-cols.three .row .grp { display: none; }
 @media (max-width: 1100px) { .cmp-cols.three { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .cmp-drops { grid-template-columns: 1fr; } }
+
+/* ── compare view switch ── */
+.seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 8px; overflow: hidden; }
+.seg button { background: var(--panel); color: var(--muted); border: 0; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line2); }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--acc); color: var(--bg); font-weight: 600; }
+
+/* bits */
+.b0 { color: var(--dim); } .b1 { color: var(--text); }
+b.bd { color: var(--bg); background: var(--acc); border-radius: 2px; font-weight: 700; }
+.bitstr { font: 12px var(--mono); letter-spacing: .5px; margin-left: 6px; }
+
+/* byte table */
+.bytetable td { padding: 4px 10px; }
+.bytetable .bytecell { font-family: var(--mono); }
+.bytetable .fieldname { font-family: var(--sans); font-size: 12.5px; font-weight: 400; }
+.bytetable a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--dim); }
+
+/* bit view */
+.bitgrid { overflow-x: auto; margin-bottom: 10px; }
+.bitrow { display: flex; gap: 6px; width: max-content; align-items: center; padding: 2px 0; }
+.bitrow .lbl { width: 26px; flex: none; }
+.bitrow .cell { width: 13.5ch; flex: none; font: 12.5px var(--mono); padding: 3px 6px; border-radius: 6px; border: 1px solid transparent; letter-spacing: .5px; }
+.bitrow .cell .hx { display: inline-block; width: 2.6ch; font-weight: 700; }
+.bitrow.head .cell { font: 11px var(--mono); color: var(--dim); padding: 0 6px; letter-spacing: 0; }
+.bitrow.head .cell.chg { color: var(--acc); }
+.bitrow:not(.head) .cell.chg { border-color: rgba(255, 215, 0, .35); background: rgba(255, 215, 0, .05); }
